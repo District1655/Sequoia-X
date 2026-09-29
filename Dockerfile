@@ -46,7 +46,8 @@ ENV DB_PATH=data/sequoia_v2.db \
     PYTHONDONTWRITEBYTECODE=1 \
     TZ=Asia/Shanghai
 
-# 默认跑日常模式；回填时追加 --backfill
-#   docker run ... sequoia-x            -> 日常增量 + 选股 + 推送
-#   docker run ... sequoia-x --backfill -> 全市场历史回填
-ENTRYPOINT [".venv/bin/python", "main.py"]
+# 常驻调度入口：容器启动后自动每个工作日 19:15 跑选股
+# 一次性手动操作：
+#   docker run ... sequoia-x --backfill   # 回填历史数据
+#   docker run ... sequoia-x --once       # 立即跑一次日常选股
+ENTRYPOINT [".venv/bin/python", "scheduler.py"]

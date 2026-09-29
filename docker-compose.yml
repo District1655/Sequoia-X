@@ -1,22 +1,22 @@
-# Sequoia-X Docker Compose
+# Sequoia-X Docker Compose（常驻调度模式）
 #
-# 首次回填（约12分钟）：
+# 一键启动（容器常驻，自动在每个工作日 19:15 跑选股 + 飞书推送）：
+#   docker compose up -d
+#
+# 查看日志：
+#   docker compose logs -f
+#
+# 首次手动回填（可选：容器首次启动检测到无数据库会自动回填，约12分钟）：
 #   docker compose run --rm sequoia-x --backfill
 #
-# 日常运行（每个交易日收盘后跑一次）：
-#   docker compose run --rm sequoia-x
-#
-# 配合宿主机 crontab 定时执行（推荐）：
-#   15 19 * * 1-5  cd /path/to/Sequoia-X && /usr/bin/docker compose run --rm sequoia-x >> logs/cron.log 2>&1
+# 立即手动跑一次：
+#   docker compose run --rm sequoia-x --once
 
 services:
   sequoia-x:
     build: .
     image: sequoia-x:latest
     container_name: sequoia-x
-
-    # 取消下行注释可直接 `docker compose up` 跑回填
-    # command: --backfill
 
     # 从 .env 读取飞书 webhook 等配置（见 .env.example）
     env_file:
@@ -26,8 +26,8 @@ services:
     volumes:
       - ./data:/app/data
 
-    # 任务型容器：跑完即退，不自动重启
-    restart: "no"
+    # 常驻服务：崩溃自动重启，开机自启
+    restart: unless-stopped
 
     # 资源限制（8进程增量同步时的峰值上限）
     deploy:
