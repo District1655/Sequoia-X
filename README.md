@@ -38,74 +38,142 @@ python main.py --backfill     # 回填模式：全市场历史K线一次性灌�
 
 ## Docker 部署（推荐）
 
-### 1. 配置环境变量
+### 前置要求
+
+服务器已安装 Docker Engine 和 docker compose 插件（`docker compose version` 能输出版本号即可）。
+
+### 第一步：拉代码
+
+```bash
+git clone git@github.com:District1655/Sequoia-X.git
+cd Sequoia-X
+```
+
+### 第二步：创建 `.env` 配置文件
 
 ```bash
 cp .env.example .env
+vi .env
 ```
 
-编辑 `.env`，二选一配置推送平台：
+根据你用哪个群机器人，二选一填写：
 
-**飞书：**
+**用飞书群机器人：**
 ```env
 NOTIFY_PLATFORM=feishu
 FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/你的token
 ```
 
-**钉钉：** 群里添加「自定义」机器人，安全设置选「加签」，然后：
+**用钉钉群机器人：**
+钉钉群 → 群设置 → 智能群助手 → 添加机器人 → 选「自定义」，安全设置选「加签」，然后：
 ```env
 NOTIFY_PLATFORM=dingtalk
 DINGTALK_WEBHOOK_URL=https://oapi.dingtalk.com/robot/send?access_token=你的token
-DINGTALK_SECRET=SEC你的加签
+DINGTALK_SECRET=SEC你的加签secret
 ```
 
-### 2. 一键启动（常驻）
+> 注意：`.env` 里的 webhook 是敏感信息，不要提交到 git（已在 `.gitignore` 里忽略）。
+
+### 第三步：`docker-compose.yml` 完整内容
+
+仓库根目录已带好，一般不用改。完整内容如下，方便你对照：
+
+```yaml
+services:
+  sequoia-x:
+    build: .
+    image: sequoia-x:latest
+    container_name: sequoia-x
+
+    # 推送配置 & 数据库路径（飞书/钉钉 webhook 等敏感信息放 .env）
+    env_file:
+      - .env
+
+    environment:
+      # ── 定时运行时间（北京时间，工作日自动跳过周末）──
+      RUN_HOUR: "19"
+      RUN_MINUTE: "15"
+      # ── 推送平台：feishu 或 dingtalk ──
+      NOTIFY_PLATFORM: ${NOTIFY_PLATFORM:-feishu}
+      # ── 数据路径（容器内，对应下面挂载点）──
+      DB_PATH: data/sequoia_v2.db
+      START_DATE: ${START_DATE:-2024-01-01}
+      TZ: Asia/Shanghai
+
+    # SQLite 数据库持久化到宿主机 ./data
+    volumes:
+      - ./data:/app/data
+
+    # 常驻服务：崩溃自动重启，开机自启
+    restart: unless-stopped
+
+    # 资源限制（8进程增量同步峰值上限）
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+
+    # 日志轮转，避免磁盘撑爆
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+```
+
+**想改运行时间？** 直接改上面的 `RUN_HOUR` 和 `RUN_MINUTE`，比如改成 18:30 跑：
+```yaml
+RUN_HOUR: "18"
+RUN_MINUTE: "30"
+```
+
+### 第四步：构建并启动
 
 ```bash
 docker compose up -d --build
 ```
 
-容器常驻运行，**首次启动自动回填历史数据（约12分钟）**，之后每个工作日自动选股推送。
-
-### 3. 查看运行状态
+首次启动会自动检测数据库不存在，**自动回填历史数据（约12分钟）**。这期间看日志能看到进度：
 
 ```bash
-docker compose logs -f        # 跟踪日志
-docker compose ps             # 查看容器状态
+docker compose logs -f
 ```
 
-### 4. 定时时间配置
+回填完成后容器进入常驻状态，每个工作日 19:15（北京时间）自动跑选股 + 推送。周末自动跳过。
 
-在 `docker-compose.yml` 的 `environment` 块里改（默认 19:15 北京时间）：
-
-```yaml
-environment:
-  RUN_HOUR: "19"      # 几点跑
-  RUN_MINUTE: "15"    # 几分跑
-```
-
-改完 `docker compose up -d` 重启生效。周末自动跳过，节假日无数据时策略自然选不出票，不报错。
-
-### 5. 常用运维命令
+### 第五步：验证是否正常
 
 ```bash
-# 手动回填历史数据
-docker compose run --rm sequoia-x --backfill
-
-# 立即手动跑一次选股
+# 立即手动跑一次，看群里有没有收到消息
 docker compose run --rm sequoia-x --once
 
-# 停止 / 重启 / 升级
-docker compose down
-docker compose restart
+# 看最近日志
+docker compose logs --tail 50
+```
+
+### 常用运维命令
+
+```bash
+docker compose ps                              # 容器状态
+docker compose logs -f                          # 实时日志
+docker compose restart                          # 重启
+docker compose down                             # 停止（数据在 ./data 不丢）
+docker compose up -d --build                   # 改了配置/代码后重建
+
+# 手动操作
+docker compose run --rm sequoia-x --backfill    # 重新回填历史
+docker compose run --rm sequoia-x --once       # 立即跑一次选股
+
+# 升级到最新代码
 git pull && docker compose up -d --build
 ```
 
 ### 数据与资源
 
-- SQLite 数据库持久化在宿主机 `./data/sequoia_v2.db`，删容器不丢数据
+- SQLite 数据库在宿主机 `./data/sequoia_v2.db`，删容器不丢数据，可直接备份
 - 资源限制：2 CPU / 1G 内存
-- 日志轮转：10MB × 3 份
+- 日志轮转：10MB × 3 份，自动清理
 
 ---
 
