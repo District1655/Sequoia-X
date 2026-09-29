@@ -1,16 +1,15 @@
 # Sequoia-X Docker Compose（常驻调度模式）
 #
-# 一键启动（容器常驻，自动在每个工作日 19:15 跑选股 + 飞书推送）：
+# 一键启动：
 #   docker compose up -d
 #
 # 查看日志：
 #   docker compose logs -f
 #
-# 首次手动回填（可选：容器首次启动检测到无数据库会自动回填，约12分钟）：
-#   docker compose run --rm sequoia-x --backfill
-#
-# 立即手动跑一次：
-#   docker compose run --rm sequoia-x --once
+# 首次启动会自动检测并回填历史数据（约12分钟），之后按 CRON_TIME 自动选股。
+# 手动操作：
+#   docker compose run --rm sequoia-x --backfill   # 手动回填
+#   docker compose run --rm sequoia-x --once       # 立即跑一次
 
 services:
   sequoia-x:
@@ -18,25 +17,36 @@ services:
     image: sequoia-x:latest
     container_name: sequoia-x
 
-    # 从 .env 读取飞书 webhook 等配置（见 .env.example）
+    # 推送配置 & 数据库路径（飞书/钉钉 webhook 等敏感信息放 .env）
     env_file:
       - .env
 
-    # SQLite 数据库持久化到宿主机
+    environment:
+      # ── 定时运行时间（北京时间，工作日自动跳过周末）──
+      RUN_HOUR: "19"
+      RUN_MINUTE: "15"
+      # ── 推送平台：feishu 或 dingtalk ──
+      NOTIFY_PLATFORM: ${NOTIFY_PLATFORM:-feishu}
+      # ── 数据路径（容器内，对应下面挂载点）──
+      DB_PATH: data/sequoia_v2.db
+      START_DATE: ${START_DATE:-2024-01-01}
+      TZ: Asia/Shanghai
+
+    # SQLite 数据库持久化到宿主机 ./data
     volumes:
       - ./data:/app/data
 
     # 常驻服务：崩溃自动重启，开机自启
     restart: unless-stopped
 
-    # 资源限制（8进程增量同步时的峰值上限）
+    # 资源限制（8进程增量同步峰值上限）
     deploy:
       resources:
         limits:
           cpus: "2.0"
           memory: 1G
 
-    # 日志轮转，避免 journald / json 日志撑爆磁盘
+    # 日志轮转，避免磁盘撑爆
     logging:
       driver: "json-file"
       options:
