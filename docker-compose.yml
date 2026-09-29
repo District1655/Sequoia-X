@@ -1,0 +1,44 @@
+# Sequoia-X Docker Compose
+#
+# 首次回填（约12分钟）：
+#   docker compose run --rm sequoia-x --backfill
+#
+# 日常运行（每个交易日收盘后跑一次）：
+#   docker compose run --rm sequoia-x
+#
+# 配合宿主机 crontab 定时执行（推荐）：
+#   15 19 * * 1-5  cd /path/to/Sequoia-X && /usr/bin/docker compose run --rm sequoia-x >> logs/cron.log 2>&1
+
+services:
+  sequoia-x:
+    build: .
+    image: sequoia-x:latest
+    container_name: sequoia-x
+
+    # 取消下行注释可直接 `docker compose up` 跑回填
+    # command: --backfill
+
+    # 从 .env 读取飞书 webhook 等配置（见 .env.example）
+    env_file:
+      - .env
+
+    # SQLite 数据库持久化到宿主机
+    volumes:
+      - ./data:/app/data
+
+    # 任务型容器：跑完即退，不自动重启
+    restart: "no"
+
+    # 资源限制（8进程增量同步时的峰值上限）
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+
+    # 日志轮转，避免 journald / json 日志撑爆磁盘
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
