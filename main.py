@@ -74,6 +74,9 @@ def main() -> None:
         ]
 
         notifier = FeishuNotifier(settings)
+    if settings.notify_platform.lower() == "dingtalk":
+        from sequoia_x.notify.dingtalk import DingTalkNotifier
+        notifier = DingTalkNotifier(settings)
 
         # 5. 遍历策略，有结果则推送至对应机器人
         for strategy in strategies:
